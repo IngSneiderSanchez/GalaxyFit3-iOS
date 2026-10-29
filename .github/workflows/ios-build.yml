@@ -1,0 +1,38 @@
+
+name: Compilar GalaxyFit3 iOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+
+      - name: Generar proyecto Xcode
+        run: xcodegen generate
+
+      - name: Compilar para simulador iOS
+        run: |
+          xcodebuild \
+            -project GalaxyFit3iOS.xcodeproj \
+            -scheme GalaxyFit3iOS \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Guardar aplicación compilada
+        uses: actions/upload-artifact@v4
+        with:
+          name: GalaxyFit3iOS-simulador
+          path: build/Build/Products/Debug-iphonesimulator/GalaxyFit3iOS.app
