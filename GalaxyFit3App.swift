@@ -1,6 +1,7 @@
 
 import SwiftUI
 import CoreBluetooth
+import Combine
 
 @main
 struct GalaxyFit3App: App {
@@ -14,15 +15,15 @@ struct GalaxyFit3App: App {
 final class Fit3Manager: NSObject, ObservableObject,
                          CBCentralManagerDelegate,
                          CBPeripheralDelegate {
-    @Published var status = "Buscando pulsera..."
+
+    @Published var status = "Iniciando Bluetooth..."
     @Published var heartRate: Int?
+
     private var central: CBCentralManager!
     private var watch: CBPeripheral?
 
-    private let heartService =
-        CBUUID(string: "180D")
-    private let heartCharacteristic =
-        CBUUID(string: "2A37")
+    private let heartService = CBUUID(string: "180D")
+    private let heartCharacteristic = CBUUID(string: "2A37")
 
     override init() {
         super.init()
@@ -30,72 +31,138 @@ final class Fit3Manager: NSObject, ObservableObject,
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        if central.state == .poweredOn {
-            status = "Bluetooth activo. Buscando..."
-            central.scanForPeripherals(withServices: nil)
-        } else {
-            status = "Activa el Bluetooth del iPhone"
+        switch central.state {
+        case .poweredOn:
+            status = "Buscando Galaxy Fit3..."
+            central.scanForPeripherals(
+                withServices: nil,
+                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            )
+        case .poweredOff:
+            status = "Activa el Bluetooth del iPhone."
+        case .unauthorized:
+            status = "Permite el uso de Bluetooth."
+        case .unsupported:
+            status = "Bluetooth LE no compatible."
+        default:
+            status = "Esperando Bluetooth..."
         }
     }
 
-    func centralManager(_ central: CBCentralManager,
-                        didDiscover peripheral: CBPeripheral,
-                        advertisementData: [String: Any],
-                        rssi RSSI: NSNumber) {
-        guard watch == nil else { return }
+    func centralManager(
+        _ central: CBCentralManager,
+        didDiscover peripheral: CBPeripheral,
+        advertisementData: [String: Any],
+        rssi RSSI: NSNumber
+    ) {
+        let name = (
+            peripheral.name ??
+            advertisementData[CBAdvertisementDataLocalNameKey] as? String ??
+            ""
+        ).lowercased()
+
+        guard name.contains("fit3"), watch == nil else {
+            return
+        }
+
         watch = peripheral
         central.stopScan()
         peripheral.delegate = self
-        status = "Conectando a \(peripheral.name ?? "dispositivo")..."
+
+        status = "Conectando a \(peripheral.name ?? "Galaxy Fit3")..."
         central.connect(peripheral)
     }
 
-    func centralManager(_ central: CBCentralManager,
-                        didConnect peripheral: CBPeripheral) {
-        status = "Conectado. Consultando servicios..."
+    func centralManager(
+        _ central: CBCentralManager,
+        didConnect peripheral: CBPeripheral
+    ) {
+        status = "Conectado. Buscando frecuencia cardíaca..."
         peripheral.discoverServices([heartService])
     }
 
-    func peripheral(_ peripheral: CBPeripheral,
-                    didDiscoverServices error: Error?) {
+    func centralManager(
+        _ central: CBCentralManager,
+        didFailToConnect peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        watch = nil
+        status = "No se pudo conectar. Reinicia la búsqueda."
+    }
+
+    func centralManager(
+        _ central: CBCentralManager,
+        didDisconnectPeripheral peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        heartRate = nil
+        watch = nil
+        status = "Desconectado. Reinicia la búsqueda."
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didDiscoverServices error: Error?
+    ) {
         guard error == nil else {
-            status = "Error leyendo servicios"
+            status = "Error al consultar servicios."
             return
         }
-        peripheral.services?.forEach {
-            peripheral.discoverCharacteristics(
-                [heartCharacteristic], for: $0)
+
+        guard let service = peripheral.services?.first(
+            where: { $0.uuid == heartService }
+        ) else {
+            status = "No se encontró el servicio cardíaco."
+            return
         }
+
+        peripheral.discoverCharacteristics(
+            [heartCharacteristic],
+            for: service
+        )
     }
 
-    func peripheral(_ peripheral: CBPeripheral,
-                    didDiscoverCharacteristicsFor service: CBService,
-                    error: Error?) {
-        guard error == nil else { return }
-        service.characteristics?.forEach {
-            if $0.uuid == heartCharacteristic {
-                peripheral.setNotifyValue(true, for: $0)
-                status = "Escuchando frecuencia cardíaca"
-            }
-        }
-    }
-
-    func peripheral(_ peripheral: CBPeripheral,
-                    didUpdateValueFor characteristic: CBCharacteristic,
-                    error: Error?) {
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didDiscoverCharacteristicsFor service: CBService,
+        error: Error?
+    ) {
         guard error == nil,
+              let characteristic = service.characteristics?.first(
+                where: { $0.uuid == heartCharacteristic }
+              ) else {
+            status = "No se encontró la lectura cardíaca."
+            return
+        }
+
+        peripheral.setNotifyValue(true, for: characteristic)
+        status = "Conectado. Esperando pulsaciones..."
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didUpdateValueFor characteristic: CBCharacteristic,
+        error: Error?
+    ) {
+        guard error == nil,
+              characteristic.uuid == heartCharacteristic,
               let data = characteristic.value,
-              data.count >= 2 else { return }
+              data.count >= 2 else {
+            return
+        }
 
         let bytes = [UInt8](data)
         let bpm: Int
+
         if bytes[0] & 1 == 1 {
             guard bytes.count >= 3 else { return }
             bpm = Int(bytes[1]) | (Int(bytes[2]) << 8)
         } else {
             bpm = Int(bytes[1])
         }
+
         heartRate = bpm
+        status = "Frecuencia cardíaca recibida."
     }
 }
 
@@ -103,7 +170,7 @@ struct ContentView: View {
     @StateObject private var fit3 = Fit3Manager()
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 22) {
             Image(systemName: "heart.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.red)
@@ -114,8 +181,10 @@ struct ContentView: View {
             Text(fit3.status)
                 .multilineTextAlignment(.center)
 
-            Text(fit3.heartRate.map { "\($0) BPM" } ?? "-- BPM")
-                .font(.system(size: 42, weight: .semibold))
+            Text(
+                fit3.heartRate.map { "\($0) BPM" } ?? "-- BPM"
+            )
+            .font(.system(size: 42, weight: .semibold))
 
             Text("Conexión Bluetooth experimental")
                 .font(.footnote)
