@@ -1,0 +1,20 @@
+
+name: GalaxyFit3iOS
+
+options:
+  bundleIdPrefix: com.sneidersanchez
+  deploymentTarget:
+    iOS: "16.0"
+
+targets:
+  GalaxyFit3iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: GalaxyFit3App.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sneidersanchez.galaxyfit3ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Esta aplicación utiliza Bluetooth para conectarse a tu Galaxy Fit3 y consultar la frecuencia cardíaca."
+        SWIFT_VERSION: "5.0"
