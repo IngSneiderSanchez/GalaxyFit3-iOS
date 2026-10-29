@@ -20,19 +20,25 @@ jobs:
       - name: Generar proyecto Xcode
         run: xcodegen generate
 
-      - name: Compilar para simulador iOS
+      - name: Compilar para iPhone físico
         run: |
           xcodebuild \
             -project GalaxyFit3iOS.xcodeproj \
             -scheme GalaxyFit3iOS \
-            -sdk iphonesimulator \
+            -sdk iphoneos \
             -configuration Debug \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Guardar aplicación compilada
+      - name: Empaquetar IPA sin firma
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Debug-iphoneos/GalaxyFit3iOS.app Payload/
+          /usr/bin/zip -r GalaxyFit3iOS-unsigned.ipa Payload
+
+      - name: Subir IPA
         uses: actions/upload-artifact@v4
         with:
-          name: GalaxyFit3iOS-simulador
-          path: build/Build/Products/Debug-iphonesimulator/GalaxyFit3iOS.app
+          name: GalaxyFit3iOS-IPA
+          path: GalaxyFit3iOS-unsigned.ipa
